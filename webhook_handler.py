@@ -7,15 +7,14 @@ import logging
 from logging.handlers import RotatingFileHandler
 import hashlib
 import hmac
+import sys
 
 
 CONFIG_PATH='handle.conf'
 
 app=Flask(__name__)
 
-
 def log(payload):
-
 	commits=payload['commits']
 	added_files=[]
 	removed_files=[]
@@ -28,19 +27,21 @@ def log(payload):
 	sender=payload['sender']['login']
 	sender_is_site_admin=payload['sender']['site_admin']
 
-	logging.info('Added files:{}  Modified files:{}  Removed files:{}  Sender:{} isSiteAdmin:{}'\
-	             .format(str(added_files),
-	                     str(modified_files),
-	                     str(removed_files),
-	                     str(sender),
-	                     str(sender_is_site_admin),
-	                     ))
+	logging.info('Added files:{}  Modified files:{}  Removed files:{}\
+              Sender:{} isSiteAdmin:{}'
+                .format(str(added_files),
+                        str(modified_files),
+                        str(removed_files),
+                        str(sender),
+                        str(sender_is_site_admin),
+                        ))
 
 def load_config(path=CONFIG_PATH):
 	try:
 		with open(path) as f:
 			config=json.load(f)
-	except:
+	except Exception as e:
+		print (e)
 		logging.critical("Failed to open config file '{}'.".format(path))
 		return False
 	try:
@@ -49,7 +50,9 @@ def load_config(path=CONFIG_PATH):
 		global GIT_ADDRESS
 		global TOTP_SEED
 		global GITHUB_SECRET
+		global ALLOW_BRANCHES
 
+		ALLOW_BRANCHES=config['allow_branches']
 		DEPLOY_PATH=config['deploy_path']
 		CHECK_FILES=config['check_files']
 		GIT_ADDRESS=config['git_address']
@@ -65,16 +68,17 @@ def deploy():
 	try:
 		cmd="cd {};git pull".format(DEPLOY_PATH)
 		result=os.popen(cmd).read()
-		print result
+		print (result)
 		logging.info('Deployed succeed.')
 	except:
 		logging.critical('Deployed failed.')
-	
+
 def check_signature(signature,data):
 	try:
 		signature=signature.split('=')[-1]
 		load_config()
-		mac = hmac.new(str(GITHUB_SECRET), msg=data, digestmod=hashlib.sha1).hexdigest()
+		mac = hmac.new(GITHUB_SECRET.encode(), msg=data,\
+                 digestmod=hashlib.sha1).hexdigest()
 		result=hmac.compare_digest(mac, str(signature))
 	except:
 		logging.warning("Some thing wrong while checking signature.")
@@ -83,17 +87,24 @@ def check_signature(signature,data):
 	if result:
 		return True
 	else:
-		logging.warning('Signatures didn\'t match! {} && {}(local)'.format(signature,mac))
+		logging.warning('Signatures didn\'t match! {} && {}(local)'.\
+                  format(signature,mac))
 		return False
 
 def check_permission(payload):
 	with open('check_totp_flag','r') as f:
 		if f.read():
-			logging.warning('Refuse deploy. Because the check_totp_flag is True.')
+			logging.warning('Refuse deploy.\
+                   Because the check_totp_flag is True.')
 			return 1
 
 	if not load_config():
 		return 0
+
+	branch=payload['ref'].split('/')[-1]
+	if branch not in ALLOW_BRANCHES:
+		logging.info('Refuse deploy. Because the branch doesn\'t in the allow branches.')
+		return 3
 
 	commits=payload['commits']
 	added_files=[]
@@ -108,7 +119,8 @@ def check_permission(payload):
 		if item in added_files+removed_files+modified_files:
 			with open('check_totp_flag','w') as f:
 				f.write('1')
-			logging.warning('Refuse deploy. Because there are some files needed to be checked by TOTP.')
+			logging.warning('Refuse deploy.\
+                   Because there are some files needed to be checked by TOTP.')
 			return 1
 	return 2
 
@@ -130,10 +142,13 @@ def webhook_handle():
 	if result == 0:
 		return '500'
 	elif result == 1:
-		return 'Sorry. Can\'t deploy right now. Because there are some files needed to be checked by admin.'
+		return 'Sorry. Can\'t deploy right now.\
+            Because there are some files needed to be checked by admin.'
 	elif result == 2:
 		deploy()
 		return 'Deployed'
+	elif result == 3:
+		return 'Sorry. Can\'t deploy. Because the branch doesn\'t in the allow branches.'
 
 @app.route('/auth/<totp>',methods=['GET'])
 def check_totp_handle(totp):
@@ -156,38 +171,42 @@ def init_logging():
 		datefmt='%d %b %Y %H:%M:%S',
 	)
 
-	Rthandler = RotatingFileHandler('webhook_handler_log',maxBytes=1024*1024,backupCount=2)
+	Rthandler = RotatingFileHandler('webhook_handler_log',\
+                                 maxBytes=1024*1024,backupCount=2)
 	Rthandler.setLevel(logging.INFO)
 	formatter=logging.Formatter('%(asctime)s  %(levelname)-8s %(message)s')
 	Rthandler.setFormatter(formatter)
 	logging.getLogger('').addHandler(Rthandler)
 
-def init_gitdir():
+def check_deploy_dir():
 	if not load_config():
 		return False
-	if os.path.exists(DEPLOY_PATH):
-		if os.path.exists(DEPLOY_PATH+'/.git/'):
-			return True
+	if os.path.isdir(DEPLOY_PATH):
+		if os.listdir(DEPLOY_PATH):
+			if os.path.exists(DEPLOY_PATH+"/.git/"):
+				return True
+			else:
+				logging.critical("{} is not a Git directory.".format(DEPLOY_PATH))
 		else:
-			logging.critical("{} is not a Git directory.".format(DEPLOY_PATH))
-			return False
+			result=os.system("git clone {} {}".format(GIT_ADDRESS,DEPLOY_PATH))
+			if result != 0:
+				logging.critical('Failed to clone from {}'.format(GIT_ADDRESS))
+				return False
+			logging.info("Cloned from {}".format(GIT_ADDRESS))
+			return True
 	else:
-		result=os.system("git clone {}".format(GIT_ADDRESS))
-		if result != 0:
-			logging.critical('Failed to clone from {}'.format(GIT_ADDRESS))
-			return False
-		logging.info("Cloned from {}".format(GIT_ADDRESS))
-		return True
+		logging.critical('Directory {} doesn\'t exist.'.format(DEPLOY_PATH))
+		return False
 
 def init():
 	if not os.path.exists('check_totp_flag'):
 		with open('check_totp_flag','w') as f:
 			f.write('')
 	init_logging()
-	if not init_gitdir():
+	if not check_deploy_dir():
 		os._exit(0)
 
 
 if __name__ == '__main__':
 	init()
-	app.run(host='0.0.0.0')
+	app.run(host=sys.argv[1],port=sys.argv[2])
