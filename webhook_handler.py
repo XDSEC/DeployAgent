@@ -10,7 +10,7 @@ import hmac
 import sys
 
 
-CONFIG_PATH='handle.conf'
+CONFIG_PATH=sys.argv[3]
 
 app=Flask(__name__)
 
@@ -25,11 +25,13 @@ def log(payload):
 		modified_files+=commits[index]['modified']
 
 	sender=payload['sender']['login']
+	branch=payload['ref'].split('/')[-1]
 	sender_is_site_admin=payload['sender']['site_admin']
 
-	logging.info('Added files:{}  Modified files:{}  Removed files:{}\
+	logging.info('Branch:{}  Added files:{}  Modified files:{}  Removed files:{}\
               Sender:{} isSiteAdmin:{}'
-                .format(str(added_files),
+                .format(str(branch),
+						str(added_files),
                         str(modified_files),
                         str(removed_files),
                         str(sender),
