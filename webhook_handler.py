@@ -47,7 +47,7 @@ def load_config(path=CONFIG_PATH):
 		logging.critical("Failed to open config file '{}'.".format(path))
 		return False
 	try:
-		global DEPLOY_PATH
+		global DEPLOY_PATHS
 		global CHECK_FILES
 		global GIT_ADDRESS
 		global TOTP_SEED
@@ -55,7 +55,7 @@ def load_config(path=CONFIG_PATH):
 		global ALLOW_BRANCHES
 
 		ALLOW_BRANCHES=config['allow_branches']
-		DEPLOY_PATH=config['deploy_path']
+		DEPLOY_PATHS=config['deploy_paths']
 		CHECK_FILES=config['check_files']
 		GIT_ADDRESS=config['git_address']
 		TOTP_SEED=config['totp_seed']
@@ -66,9 +66,9 @@ def load_config(path=CONFIG_PATH):
 		logging.critical("Failed to load config.")
 		return False
 
-def deploy():
+def deploy(deploy_path,branch):
 	try:
-		cmd="cd {};git pull".format(DEPLOY_PATH)
+		cmd="cd {};git checkout {};git pull".format(deploy_path,branch)
 		result=os.popen(cmd).read()
 		print (result)
 		logging.info('Deployed succeed.')
@@ -147,7 +147,9 @@ def webhook_handle():
 		return 'Sorry. Can\'t deploy right now.\
             Because there are some files needed to be checked by admin.'
 	elif result == 2:
-		deploy()
+		branch=payload['ref'].split('/')[-1]
+		deploy_path=DEPLOY_PATHS[branch]
+		deploy(deploy_path,branch)
 		return 'Deployed'
 	elif result == 3:
 		return 'Sorry. Can\'t deploy. Because the branch doesn\'t in the allow branches.'
@@ -180,24 +182,24 @@ def init_logging():
 	Rthandler.setFormatter(formatter)
 	logging.getLogger('').addHandler(Rthandler)
 
-def check_deploy_dir():
+def check_deploy_dir(deploy_path):
 	if not load_config():
 		return False
-	if os.path.isdir(DEPLOY_PATH):
-		if os.listdir(DEPLOY_PATH):
-			if os.path.exists(DEPLOY_PATH+"/.git/"):
+	if os.path.isdir(deploy_path):
+		if os.listdir(deploy_path):
+			if os.path.exists(deploy_path+"/.git/"):
 				return True
 			else:
-				logging.critical("{} is not a Git directory.".format(DEPLOY_PATH))
+				logging.critical("{} is not a Git directory.".format(deploy_path))
 		else:
-			result=os.system("git clone {} {}".format(GIT_ADDRESS,DEPLOY_PATH))
+			result=os.system("git clone {} {}".format(GIT_ADDRESS,deploy_path))
 			if result != 0:
 				logging.critical('Failed to clone from {}'.format(GIT_ADDRESS))
 				return False
 			logging.info("Cloned from {}".format(GIT_ADDRESS))
 			return True
 	else:
-		logging.critical('Directory {} doesn\'t exist.'.format(DEPLOY_PATH))
+		logging.critical('Directory {} doesn\'t exist.'.format(deploy_path))
 		return False
 
 def init():
@@ -205,8 +207,11 @@ def init():
 		with open('check_totp_flag','w') as f:
 			f.write('')
 	init_logging()
-	if not check_deploy_dir():
-		os._exit(0)
+	load_config()
+	print (DEPLOY_PATHS)
+	for branch in DEPLOY_PATHS:
+		if not check_deploy_dir(DEPLOY_PATHS[branch]):
+			os._exit(0)
 
 
 if __name__ == '__main__':

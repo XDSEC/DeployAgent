@@ -1,8 +1,8 @@
 {
-	"deploy_path"   : "xxxxxxxx",
+	"deploy_paths"   : {"master":"xxxxxx","dev":"xxx"},
 	"check_files"   : ["s0m3th1ing.html"],
-	"allow_branches"   : ["master"],
+	"allow_branches"   : ["master","dev"],
 	"git_address"   : "https://github.com/XDSEC/web_homepage.git",
-	"totp_seed"     : "xxxxxxxxxxx",
-	"github_secret" : "xxxxxxxx"
+	"totp_seed"     : "xxxx",
+	"github_secret" : "xxxx"
 }
