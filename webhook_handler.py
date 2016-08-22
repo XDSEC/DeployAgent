@@ -71,7 +71,7 @@ def deploy(deploy_path,branch):
 		cmd="cd {};git checkout {};git pull".format(deploy_path,branch)
 		result=os.popen(cmd).read()
 		print (result)
-		logging.info('Deployed succeed.')
+		logging.info('GAGADeployed succeed.')
 	except:
 		logging.critical('Deployed failed.')
 
