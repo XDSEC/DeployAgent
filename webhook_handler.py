@@ -68,7 +68,7 @@ def load_config(path=CONFIG_PATH):
 
 def deploy(deploy_path,branch):
 	try:
-		cmd="cd {};git checkout {};git pull".format(deploy_path,branch)
+		cmd="cd {};git checkout {};git pull origin {}".format(deploy_path,branch,branch)
 		result=os.popen(cmd).read()
 		print (result)
 		logging.info('Deployed succeed.')
